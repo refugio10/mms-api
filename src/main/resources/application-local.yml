@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    saechvv:
+      url: jdbc:mysql://192.168.100.11:3306/saechvv?useSSL=false&serverTimezone=UTC
+      username: root
+      password: 'Refug1011*'
+      driverClassName: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  modulomonitoreo:
+    general:
+      folder: /tmp/dsk6compartido/Verificentros/modulomonitoreo
+      folderTemporal: /tmp/modulomonitoreo/
