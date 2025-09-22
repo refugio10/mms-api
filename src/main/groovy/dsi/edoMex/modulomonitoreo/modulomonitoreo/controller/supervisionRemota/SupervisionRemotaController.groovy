@@ -1,13 +1,13 @@
 package dsi.edoMex.modulomonitoreo.modulomonitoreo.controller.supervisionRemota
 
 import dsi.edoMex.modulomonitoreo.modulomonitoreo.service.utilerias.GeneralService
-import dsi.edoMex.modulomonitoreo.saechvv.service.catalogo.VerificacionService
 import dsi.edoMex.modulomonitoreo.saechvv.service.supervisionRemota.ActaSupervisionRemotaService
 import dsi.edoMex.modulomonitoreo.saechvv.service.supervisionRemota.SupervisionRemotaService
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -30,22 +30,29 @@ class SupervisionRemotaController {
     SupervisionRemotaService supervisionRemotaService
 
     @Autowired
-    VerificacionService verificacionService
-
-    @Autowired
     GeneralService generalService
 
     @Autowired
     ActaSupervisionRemotaService actaSupervisionRemota
 
-   /**
+    /**
      * Genera una supervisión remota aleatoria de un verificentro
      *
      * @return Map información del verificentro seleccionado aleatoriamente
      */
     @PostMapping('/supervisionAleatoriaVerificentro')
     def supervisionAleatoriaVerificentro(){
-        return supervisionRemotaService.iniciarSupervisionRemotaVerificentro()
+        return supervisionRemotaService.iniciarSupervisionRemotaVerificentroAleatorio()
+    }
+
+    /**
+     * Genera una supervisión remota de un verificentro en específico
+     * @param parametros Map mapa con los parámetros necesarios para iniciar la supervisión remota
+     * @return Map información del verificentro seleccionado
+     */
+    @PostMapping('/supervisionVerificentroEspecifico')
+    def supervisionVerificentroEspecifico(@RequestParam Map parametros){
+        return supervisionRemotaService.iniciarSupervisionRemotaVerificentroEspecifico(parametros)
     }
 
     /**
@@ -55,8 +62,8 @@ class SupervisionRemotaController {
      * @return Map información del verificentro supervisado
      */
     @GetMapping('/obtenerInformacionVerificentro')
-    def obenerInformacionVerificentro(@RequestParam("idVerificentro") Integer idVerificentro, @RequestParam("folioSupervision") String folioSupervision){
-        print("Id del verificentro "+idVerificentro)
+    def obtenerInformacionVerificentro(@RequestParam("idVerificentro") Integer idVerificentro, @RequestParam("folioSupervision") String folioSupervision){
+
         return supervisionRemotaService.obtenerInformacionSupervisionVerificentro(idVerificentro, folioSupervision)
     }
 
@@ -67,7 +74,7 @@ class SupervisionRemotaController {
      */
     @PostMapping('/supervisionAleatoriaVerificacion')
     def supervisionAleatoriaVerificacion(){
-        return supervisionRemotaService.datosVerificacionAleatoria()
+        return supervisionRemotaService.iniciarSupervisionVerificacionAleatoria()
     }
 
     /**
@@ -84,12 +91,42 @@ class SupervisionRemotaController {
     /**
      * Obtiene la información detallada de una verificación que se está supervisando de forma remota.
      * @param idVerificacion Integer identificador de la verificación de la cual se está supervisando
-     * @return Map información detallada de la verificación supervisada
+     * @return Map información detallada de la verificación en supervisión
      */
     @GetMapping('/obtenerInformacionDetalladaVerificacion/{idVerificacion}')
     def obtenerInformacionDetalladaVerificacion(@PathVariable("idVerificacion") Integer idVerificacion){
         return supervisionRemotaService.obtenerInformacionDetalladaVerificacion(idVerificacion)
 
+    }
+
+    /**
+     * Consulta las verificaciones para supervisar por los parametros proporcionados.
+     * @param parametros Map mapa con los parámetros necesarios para la consulta de las verificaciones.
+     * @return Map mapa con la respuesta de la consulta de las verificaciones.
+     */
+    @GetMapping('/consultaVerificaciones')
+    def consultaVerificaciones(@RequestParam Map<String, String> parametros){
+        return supervisionRemotaService.buscarVerificaciones(parametros)
+    }
+
+    /**
+     * Consulta las verificaciones para supervisar por los parametros proporcionados.
+     * @param parametros Map mapa con los parámetros necesarios para la consulta de las verificaciones.
+     * @return Map mapa con la respuesta de la consulta de las verificaciones.
+     */
+    @GetMapping('/consultaVerificacionesVerificentro')
+    def consultaVerificacionesVerificentro(@RequestParam Map<String, String> parametros){
+        return supervisionRemotaService.buscarVerificacionesVerificentro(parametros)
+    }
+
+    /**
+     * Consulta las supervisiones remotas realizadas por los parametros proporcionados.
+     * @param parametros Map mapa con los parámetros necesarios para la consulta de las supervisiones remotas.
+     * @return Map mapa con la respuesta de la consulta de las supervisiones remotas.
+     */
+    @GetMapping('/consultaSupervisionesRemotas')
+    def consultaSupervisionesRemotas(@RequestParam Map<String, String> parametros){
+        return supervisionRemotaService.consultaSupervisionesRemotas(parametros)
     }
 
     /**
@@ -109,7 +146,7 @@ class SupervisionRemotaController {
      */
     @PostMapping('/registrarAnomalia')
     def registrarAnomalia(@RequestParam Map<String, String> parametros){
-        supervisionRemotaService.registrarAnomalia(parametros)
+        supervisionRemotaService.registrarAnomaliaVerificacion(parametros)
     }
 
     /**
@@ -119,7 +156,7 @@ class SupervisionRemotaController {
      */
     @GetMapping('/getDocumentosVerificacion')
     def getDocumentosVerificacion(@RequestParam("idVerificacion") Integer idVerificacion) {
-        return verificacionService.getDocumentosVerificacion(idVerificacion)
+        return supervisionRemotaService.getDocumentosVerificacion(idVerificacion)
     }
 
     /**
@@ -157,19 +194,73 @@ class SupervisionRemotaController {
             }
 
             byte[] archivoBytes = contenidoReporteTxt.getBytes("UTF-8")
-            String base64Content = Base64.getEncoder().encodeToString(archivoBytes)
+            String contendidoArchivo = Base64.getEncoder().encodeToString(archivoBytes)
 
             respuesta.put("tipoArchivo", "text/plain")
-            respuesta.put("bytes", base64Content)
+            respuesta.put("bytes", contendidoArchivo)
             respuesta.put("nombreDocumento", "reporte_verificaciones_" + System.currentTimeMillis() + ".txt")
 
             return respuesta
 
-        } catch (Exception e) {
+        } catch (Exception excepcion) {
+            excepcion.printStackTrace()
             def respuesta = generalService.respuestaRequest(INTERNAL_SERVER_ERROR)
             respuesta.mensaje = "Ocurrió un problema al generar el reporte de las verificaciones del verificentro"
             return respuesta
         }
+    }
+
+    /**
+     * Genera una supervisión remota de una verificación en específico
+     * @param idVerificacion Integer identificador de la verificación a supervisar
+     * @return Map información de la verificación seleccionada
+     */
+    @PostMapping('/supervisionVerificacionEspecifica/{idVerificacion}')
+    def supervisionVerificacionEspecifica(@PathVariable("idVerificacion") Integer idVerificacion){
+        return supervisionRemotaService.iniciarSupervisionRemotaVerificacion(idVerificacion)
+    }
+
+    /**
+     * Obtiene la información de una supervisión remota en específico
+     * @param idSupervision Integer identificador de la supervisión remota
+     * @return Map información de la supervisión remota
+     */
+    @GetMapping('/obtenerSupervisionRemota/{idSupervision}')
+    def obtenerSupervisonRemota(@PathVariable("idSupervision") Integer idSupervision){
+
+        return supervisionRemotaService.consultaSupervisionRemota(idSupervision)
+    }
+
+    /**
+     * Cierra una supervisión remota en específico
+     * @param parametros Map mapa con los parámetros necesarios para cerrar la supervisión remota
+     * @return Map información de la supervisión remota cerrada
+     */
+    @PutMapping('/cerrarSupervisionRemota')
+    def cerrarSupervisionRemota(@RequestParam Map<String, String> parametros){
+        return supervisionRemotaService.cerrarSupervisionRemota(parametros)
+    }
+
+    /**
+     * Consulta las anomalías registradas en una supervisión remota de un verificentro
+     * @param idSupervision Integer identificador de la supervisión remota
+     * @return Map mapa con la respuesta de la consulta de las anomalías registradas en la supervisión remota
+     */
+    @GetMapping('/consultaAnomaliasSupervisionVerificentro/{idSupervision}')
+    def consultaAnomaliasSupervisionVerificentro(@PathVariable("idSupervision") Integer idSupervision){
+        def respuesta = supervisionRemotaService.consultaAnomaliasSupervisionVerificentro(idSupervision)
+        println("Respuesta en el constrolador "+respuesta)
+        return respuesta
+    }
+
+    /**
+     * Registra una anomalia en una verificentro.
+     * @param datosAnomalia Mapa con los parámetros necesarios para el registro de la anomalia.
+     * @return Map mapa con la respuesta del registro de la anomalía.
+     */
+    @PostMapping('/registrarAnomaliaVerificentro')
+    def registrarAnomaliaVerificentro(@RequestParam Map<String, String> datosAnomalia){
+        supervisionRemotaService.registrarAnomaliaVerificentro(datosAnomalia)
     }
 
 }

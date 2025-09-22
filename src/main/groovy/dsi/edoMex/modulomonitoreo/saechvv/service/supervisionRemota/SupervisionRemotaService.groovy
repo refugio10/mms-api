@@ -11,6 +11,7 @@ import dsi.edoMex.modulomonitoreo.saechvv.entity.supervisionRemota.AnomaliaMesaC
 import dsi.edoMex.modulomonitoreo.saechvv.entity.supervisionRemota.AnomaliaSupervisionRemota
 import dsi.edoMex.modulomonitoreo.saechvv.entity.supervisionRemota.MesaControl
 import dsi.edoMex.modulomonitoreo.saechvv.entity.supervisionRemota.SupervisionRemota
+
 import dsi.edoMex.modulomonitoreo.saechvv.repository.administracion.Criteria
 import dsi.edoMex.modulomonitoreo.saechvv.repository.administracion.UsuarioSaechvvRepository
 import dsi.edoMex.modulomonitoreo.saechvv.repository.catalogo.CalleRepository
@@ -28,8 +29,8 @@ import dsi.edoMex.modulomonitoreo.saechvv.repository.supervisionRemota.Incidenci
 import dsi.edoMex.modulomonitoreo.saechvv.repository.supervisionRemota.MesaControlRepository
 import dsi.edoMex.modulomonitoreo.saechvv.repository.supervisionRemota.MotivoAnomaliaRepository
 import dsi.edoMex.modulomonitoreo.saechvv.repository.supervisionRemota.SupervisionRemotaRepository
+import dsi.edoMex.modulomonitoreo.saechvv.repository.supervisionRemota.SupervisionVerificacionCentroRepository
 import dsi.edoMex.modulomonitoreo.saechvv.service.catalogo.LineaVerificacionService
-import jakarta.persistence.criteria.CriteriaBuilder
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -111,14 +112,54 @@ class SupervisionRemotaService {
     @Autowired
     ReporteTxtVerificacionService reporteTxtVerificacionService
 
+    @Autowired
+    SupervisionVerificacionCentroRepository supervisionVerificacionCentroRepository
+
     /**
      * Inicia una supervisión remota a un verificentro aleatorio que cumpla con los criterios para ser seleccionado
      *
      * @return Mapa con la información del verificentro seleccionado y el folio de la supervisión remota iniciada
      */
-    def iniciarSupervisionRemotaVerificentro() {
+    def iniciarSupervisionRemotaVerificentroAleatorio() {
         Integer idVerificentro = obtenerIdVerificentroAleatorio()
 
+        return registrarSupervisionVerificentro(idVerificentro)
+    }
+
+    /**
+     * Inicia una supervisión remota a un verificentro específico proporcionado en los parámetros
+     *
+     * @param parametros Mapa con los parámetros necesarios para iniciar la supervisión remota
+     *                    - verificentro: Identificador del verificentro
+     *                    - totalVerificaciones: Total de verificaciones a obtener en los últimos 7 días
+     * @return Mapa con la información del verificentro seleccionado, el folio de la supervisión remota iniciada
+     *         y las verificaciones realizadas en los últimos 7 días
+     */
+    def iniciarSupervisionRemotaVerificentroEspecifico(Map parametros) {
+
+        Integer idVerificentro = parametros.get("verificentro") as Integer
+        Integer totalVerificaciones = parametros.get("totalVerificaciones") as Integer
+
+        def respuestaRegistroSupervision = registrarSupervisionVerificentro(idVerificentro)
+
+        if (respuestaRegistroSupervision?.error){
+            return respuestaRegistroSupervision
+        }
+
+        String fechaInicio = new SimpleDateFormat("dd/MM/yyyy")?.format(restarDias(new Date(), -7))
+        def verificacionesVerificentro = verificentroRepository.getVerificacionesVerificentro(fechaInicio, totalVerificaciones)
+
+        respuestaRegistroSupervision.put("verificaciones", verificacionesVerificentro)
+        return respuestaRegistroSupervision
+    }
+
+    /**
+     * Registra una supervisión remota para un verificentro específico
+     *
+     * @param idVerificentro Integer Identificador del verificentro
+     * @return Map Mapa con la información del verificentro y el folio de la supervisión remota iniciada
+     */
+    def registrarSupervisionVerificentro(Integer idVerificentro){
         if (!idVerificentro || idVerificentro == 0) {
             return [error  : true, statusCode: NOT_FOUND.value(), status: NOT_FOUND,
                     message: "No hay verificentros disponibles para supervisar, favor de intentarlo más tarde."]
@@ -147,7 +188,8 @@ class SupervisionRemotaService {
             }
             actualizaFechaSupervisionRemota(idVerificentro, fechaProxima)
 
-            return [statusCode       : OK.value(), status: OK,
+            return [statusCode       : OK.value(),
+                    status: OK,
                     message          : "Se inició la supervisión remota correctamente.",
                     datosVerificentro: datosVerificentro]
         }
@@ -168,9 +210,15 @@ class SupervisionRemotaService {
 
         def datosVerificentro = datosVerificentroAleatorio(verificentroRepository.findVerificentroById(idVerificentro))
 
+        def supervisionRemota = supervisionRemotaRepository.findByFolio(folioSupervision)
+        if(!supervisionRemota || !supervisionRemota.isPresent()){
+            return [error: true, message: "No se encontró información de la supervisión remota", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
+        }
+
         String fechaInicio = formatoFecha.format(restarDias(new Date(), -7))
 
         datosVerificentro.folio = folioSupervision
+        datosVerificentro.idSupervisionRemota = supervisionRemota?.get()?.id
         datosVerificentro.fechaMuestra = fechaInicio + " al " + fechaActual
         datosVerificentro.totalVerificaciones = verificentroRepository.findTotalVerificacionesByVerificentro(idVerificentro, fechaInicio, fechaActual) ?: 0
 
@@ -512,11 +560,11 @@ class SupervisionRemotaService {
         respuesta.idVerificacion = datosVerificacion.idVerificacion
         respuesta.representante = datosVerificacion.representante
         respuesta.ticket = datosVerificacion.ticket
-        respuesta.numeroSerie = datosVerificacion.numeroSerie
+        respuesta.numeroSerie = datosVerificacion?.numeroSerie
         respuesta.numeroPlaca = datosVerificacion.numeroPlaca
-        respuesta.marca = datosVerificacion.marca
-        respuesta.submarca = datosVerificacion.submarca
-        respuesta.modelo = datosVerificacion.modelo
+        respuesta.marca = datosVerificacion?.marca
+        respuesta.submarca = datosVerificacion?.submarca
+        respuesta.modelo = datosVerificacion?.modelo
 
         return respuesta
     }
@@ -743,14 +791,14 @@ class SupervisionRemotaService {
         List<MotivoAnomalia> motivosAnomalia = motivoAnomaliaRepository.findAllByOrderByIdAsc()
 
         if (!motivosAnomalia || motivosAnomalia.isEmpty()) {
-            return [error: true, message: "No se encontró información la información necesaria para el registro de la anomalía", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
+            return [error: true, message: "No se encontró la información necesaria para el registro de la anomalía", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
         }
 
         def respuestaCalogos = respuestaCatalogos(motivosAnomalia)
 
         def datosVerificacion = datosVerificacionAleatoria(verificentroRepository.findDatosVerificacionById(idVerificacion))
 
-        if (!datosVerificacion || datosVerificacion.isEmpty()) {
+        if (!datosVerificacion || datosVerificacion?.isEmpty()) {
             return [error: true, message: "No se encontró información de la verificación solicitada", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
         }
 
@@ -792,7 +840,7 @@ class SupervisionRemotaService {
      * @return Map mapa con la respuesta de la operación y un mensaje.
      */
     @Transactional
-    def registrarAnomalia(Map datosAnomalia) {
+    def registrarAnomaliaVerificacion(Map datosAnomalia) {
 
         Integer idVerificacion = datosAnomalia.get("idVerificacion") as Integer
         String numeroVerificacion = datosAnomalia.get("numeroVerificacion")
@@ -802,7 +850,7 @@ class SupervisionRemotaService {
         String folioSupervisionRemota = datosAnomalia.get("folioSupervisionRemota") as String
         Integer idLineaVerificacion = datosAnomalia.get("idLineaVerificacion") as Integer
 
-        String folioVerificacion = verificacionRepository.getFolioVerificacion(idVerificacion)
+        String folioAnomalia = verificacionRepository.getFolioVerificacion(idVerificacion)
 
         def respuestaRegistroAnomalia = registrarAnomaliaMesaControl(idVerificacion, tipoAnomalia, medidaTomar, descripcionAnomalia)
 
@@ -810,8 +858,8 @@ class SupervisionRemotaService {
             return [status: CONFLICT, statusCode: CONFLICT.value(), message: respuestaRegistroAnomalia?.message]
         }
         String claveAnomalia = respuestaRegistroAnomalia?.claveAnomalia
-
-        def respuestaRegistroBitacoraAnomalia = registrarAnomaliaSupervisionRemota(folioSupervisionRemota, folioVerificacion, tipoAnomalia, descripcionAnomalia)
+        Integer idAnomalia = anomaliaSupervisionRemotaRepository.getIdAnomaliaSupervision()
+        def respuestaRegistroBitacoraAnomalia = registrarAnomaliaSupervisionRemota(idAnomalia, folioSupervisionRemota, folioAnomalia, tipoAnomalia, descripcionAnomalia)
 
         if (respuestaRegistroBitacoraAnomalia.error) {
             return [status: CONFLICT, statusCode: CONFLICT.value(), message: respuestaRegistroBitacoraAnomalia.message]
@@ -952,14 +1000,15 @@ class SupervisionRemotaService {
 
     /**
      * Inserta un registro de anomalía en la bitácora de supervisión remota.
+     * @param idAnomalia Integer identificador de la anomalía a registrar
      * @param folioSupervisionRemota String folio de la supervisión remota
-     * @param folioVerificacion String folio de la verificación asociada
+     * @param folioAnomalia String folio a asignar a la anomalía
      * @param motivoAnomalia Integer identificador del motivo de la anomalía
      * @param descripcionAnomalia String descripción de la anomalía encontrada
      * @return Map con el resultado de la operación, incluyendo error y mensaje.
      */
     @Transactional
-    def registrarAnomaliaSupervisionRemota(String folioSupervisionRemota, String folioVerificacion, Integer motivoAnomalia, String descripcionAnomalia) {
+    def registrarAnomaliaSupervisionRemota(Integer idAnomalia, String folioSupervisionRemota, String folioAnomalia, Integer motivoAnomalia, String descripcionAnomalia) {
         def respuesta = [error: true, message: 'Ocurrió un error al registrar la anomalía de la supervisión remota.']
         try {
             def supervisionRemota = supervisionRemotaRepository.findByFolio(folioSupervisionRemota)?.orElse(null)
@@ -968,15 +1017,15 @@ class SupervisionRemotaService {
                 return respuesta
             }
 
-            def tipoAnomaliaDesc = motivoAnomaliaRepository.getDescripcionAnomalia(motivoAnomalia)
+            def descripcionTipoAnomalia = motivoAnomaliaRepository.getDescripcionAnomalia(motivoAnomalia)
             def usuario = generalService.getUsuarioSession()
 
             AnomaliaSupervisionRemota anomaliaSupervisionRemota = new AnomaliaSupervisionRemota(
-                    id: anomaliaSupervisionRemotaRepository.getIdAnomaliaSupervision(),
+                    id: idAnomalia,
                     fechaRegistro: new Date(),
                     supervisionRemota: supervisionRemota,
-                    folio: folioVerificacion,
-                    tipoAnomalia: tipoAnomaliaDesc,
+                    folio: folioAnomalia,
+                    tipoAnomalia: descripcionTipoAnomalia,
                     observacion: descripcionAnomalia,
                     activo: 1,
                     usuario: usuario
@@ -1073,9 +1122,10 @@ class SupervisionRemotaService {
      * @return Map con el resultado de la búsqueda, incluyendo estatus, código y lista de resultados
      */
     def buscarVerificaciones(Map parametros) {
+        println("Parametros de búsqueda "+parametros)
 
         def sinFiltros = !(parametros?.numeroPlaca?.toString()?.trim()) &&
-                !(parametros?.numeroTicket?.toString()?.trim()) &&
+                !(parametros?.numeroSerie?.toString()?.trim()) &&
                 !(parametros?.folio?.toString()?.trim())
 
         if (sinFiltros) {
@@ -1086,9 +1136,13 @@ class SupervisionRemotaService {
             if (parametros?.numeroPlaca) {
                 filters << builder.equal(verificacion.get("numeroPlaca"), parametros.numeroPlaca?.toString()?.trim())
             }
-            if (parametros?.numeroTicket) {
-                filters << builder.equal(verificacion.get("idUnique"), parametros?.numeroTicket?.toString()?.trim())
+            verificacion.join('padronVehicular').with { padronVehicular ->
+
+                if (parametros?.numeroSerie)
+                    filters << builder.equal(padronVehicular.get('numeroSerie'), parametros.numeroSerie as String)
+
             }
+
             if (parametros.folio) {
                 filters << builder.equal(verificacion.get("folio"), parametros?.folio?.toString()?.trim())
             }
@@ -1117,7 +1171,63 @@ class SupervisionRemotaService {
             return [statusCode: NOT_FOUND.value(), status: NOT_FOUND, message: "No se encontraron verificaciones disponibles para supervisar con los filtros de búsqueda agregados."]
         }
 
-        return [statusCode: OK.value(), status: OK, verificaciones: listaVerificaciones, totalResultados: listaVerificaciones.totalCount]
+        def respuestaVerificaciones = listaVerificaciones.collect { verificacion ->
+            [
+                    id                     : verificacion.id,
+                    folio                  : verificacion.folio,
+                    fechaInicioVerificacion: verificacion.fechaInicioVerificacion,
+                    numeroPlaca: verificacion.numeroPlaca,
+                    estatusOperacion: EstatusVerificacion.get(verificacion.estatusOperacion)?.descripcion,
+                    numeroSerie: verificacion?.padronVehicular?.numeroSerie,
+                    marca: verificacion?.padronVehicular?.marca?.descripcion,
+                    submarca: verificacion?.padronVehicular?.marcaSubmarca?.descripcion,
+                    modelo: verificacion?.padronVehicular?.modelo
+            ]
+        }
+        return [statusCode: OK.value(), status: OK, verificaciones: respuestaVerificaciones, totalResultados: listaVerificaciones.totalCount]
+    }
+
+
+    /**
+     * Busca verificaciones asociadas a un verificentro específico.
+     * @param idVerificentro Integer identificador del verificentro
+     * @param parametros Map con los parámetros de búsqueda y paginación
+     * @return Map con el resultado de la búsqueda, incluyendo estatus, código y lista de resultados
+     */
+    def buscarVerificacionesVerificentro(Integer idVerificentro) {
+
+        Optional<Verificentro> verificentro = verificentroRepository.findById(idVerificentro)
+        if(!verificentro.isPresent()){
+            return [error: true, message: "No se encontró el verificentro a supervisar", statusCode: NOT_FOUND.value(), status: NOT_FOUND]
+        }
+
+        def listaVerificacionesVerificentro = criteria.list(Verificacion.class, parametros, { filters, verificacion, builder, query ->
+
+            filters << builder.equal(verificacion.get("verificentro"), verificentro?.get())
+
+            filters << builder.isNull(verificacion.get("fechaMonitoreo"))
+
+            filters << verificacion.get("estatusOperacion").in([1, 2, 4, 11])
+            filters << builder.equal(verificacion.get("fase"), 1)
+
+        }, { root, builder, query ->
+            query.orderBy(builder.desc(root.get("id")))
+        })
+
+        if (!listaVerificacionesVerificentro || listaVerificacionesVerificentro.isEmpty()) {
+            return [statusCode: NOT_FOUND.value(), status: NOT_FOUND, message: "No se encontraron verificaciones disponibles para supervisar con los filtros de búsqueda agregados."]
+        }
+
+        listaVerificacionesVerificentro.each { verificacion ->
+            SupervisionVerificacionCentro supervisionVerificacionCentro = new SupervisionVerificacionCentro()
+            supervisionVerificacionCentro.supervisionRemota = new SupervisionRemota()
+            supervisionVerificacionCentro.verificacion = verificacion
+            supervisionVerificacionCentro.estatus = 1
+
+            supervisionVerificacionCentroRepository.save(supervisionVerificacionCentro)
+        }
+
+        return [statusCode: OK.value(), status: OK, verificaciones: listaVerificacionesVerificentro, totalResultados: listaVerificacionesVerificentro.totalCount]
     }
 
     /**
@@ -1126,8 +1236,6 @@ class SupervisionRemotaService {
      * @return Map mapa con el resultado de la búsqueda, incluyendo estatus, código y lista de resultados
      */
     def consultaSupervisionesRemotas(Map parametros) {
-        println("Parametros vacios "+parametros.isEmpty())
-        println("Parametros vacios "+parametros)
         def listaSupervisiones = criteria.list(SupervisionRemota.class, parametros, { filters, supervision, builder, query ->
 
             supervision.join('verificentro').with { verificentro ->
@@ -1175,27 +1283,29 @@ class SupervisionRemotaService {
             query.orderBy(builder.desc(root.get("fechaRegistro")))
         })
 
+        if (!listaSupervisiones || listaSupervisiones.isEmpty()) {
+            return [statusCode: NOT_FOUND.value(), status: NOT_FOUND, message: "No se encontraron supervisiones remotas con los filtros de búsqueda agregados."]
+        }
+
         def respuestaSupervisionesRemotas = listaSupervisiones.collect { supervision ->
             [
-                    id             : supervision.id,
-                    folio          : supervision.folio,
-                    fechaRegistro  : supervision.fechaRegistro,
-                    tipoSupervision: descripcionTipoSupervision(supervision?.tipoSupervision),
+                    id                : supervision.id,
+                    folio             : supervision.folio,
+                    fechaRegistro     : supervision.fechaRegistro,
+                    tipoSupervision   : descripcionTipoSupervision(supervision?.tipoSupervision),
                     estatusSupervision: supervision?.estatus,
-                    verificentro   : [
-                            id: supervision.verificentro?.id,
+                    verificentro      : [
+                            id    : supervision.verificentro?.id,
                             nombre: supervision?.verificentro?.centroNombre + " " + supervision?.verificentro?.razonSocial
                     ],
-                    usuario: [
+                    usuario           : [
                             id    : supervision?.usuario?.id,
                             nombre: supervision?.usuario?.nombre + " " + supervision?.usuario?.apellidoPaterno + " " + supervision?.usuario?.apellidoMaterno
                     ]
             ]
         }
 
-        if (!listaSupervisiones || listaSupervisiones.isEmpty()) {
-            return [statusCode: NOT_FOUND.value(), status: NOT_FOUND, message: "No se encontraron supervisiones remotas con los filtros de búsqueda agregados."]
-        }
+
 
         return [statusCode: OK.value(), status: OK, supervisionesRemotas: respuestaSupervisionesRemotas, totalCount: listaSupervisiones.totalCount, tiposSupervision: tiposSupervision()]
     }
@@ -1234,17 +1344,17 @@ class SupervisionRemotaService {
 
     /**
      * Consulta los detalles de una supervisión remota específica.
-     * @param idSupervision Integer identificador de la supervisión remota a consultar
-     * @return Map con el resultado de la consulta, incluyendo estatus, código y detalles de la supervisión
+     * @param idSupervision Integer identificador de la supervisión remota
+     * @return Map con el resultado de la consulta, incluyendo error, mensaje, estatus HTTP y datos de la supervisión
      */
-    def consultaSupervisionRemota(Integer idSupervision){
+    def consultaSupervisionRemota(Integer idSupervision) {
         if (!idSupervision) {
             return [error: true, message: "No se proporcionó el identificador de la supervisión remota", status: BAD_REQUEST, statusCode: BAD_REQUEST.value()]
         }
         def datosSupervisionRemota = supervisionRemotaRepository.findDetalleSupervisionById(idSupervision)
         def listaAnomalias = anomaliaSupervisionRemotaRepository.findAnomaliasBySupervisionRemota(idSupervision)
 
-        if(!datosSupervisionRemota || datosSupervisionRemota.isEmpty()){
+        if (!datosSupervisionRemota || datosSupervisionRemota.isEmpty()) {
             return [error: true, message: "No se encontró información de la supervisión remota solicitada", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
         }
 
@@ -1252,29 +1362,28 @@ class SupervisionRemotaService {
 
         def datosVerificentro = datosVerificentroAleatorio(verificentroRepository.findVerificentroById(idVerificentro))
 
-        return [error: false, status: OK, statusCode: OK.value(), datosSupervisionRemota: datosSupervisionRemota,
+        return [error            : false, status: OK, statusCode: OK.value(), datosSupervisionRemota: datosSupervisionRemota,
                 datosVerificentro: datosVerificentro,
-                listaAnomalias: listaAnomalias]
+                listaAnomalias   : listaAnomalias]
     }
 
     /**
-     * Cierra una supervisión remota y actualiza su estatus y detalles asociados.
-     * @param parametros Map con los parámetros necesarios para cerrar la supervisión remota.
-     * @return Map con el resultado de la operación, incluyendo estatus, código y mensaje.
+     * Cierra una supervisión remota, actualizando su estatus y registrando la información de cierre.
+     * @param parametros Map con los parámetros necesarios para cerrar la supervisión remota
+     * @return Map con el resultado de la operación, incluyendo error, mensaje y estatus HTTP
      */
-    @Transactional
-    def cerrarSupervisionRemota(Map parametros){
+    def cerrarSupervisionRemota(Map parametros) {
 
         Integer idSupervision = parametros.get("idSupervision") as Integer
         SupervisionRemota supervisionRemota = supervisionRemotaRepository.findById(idSupervision)?.orElse(null)
-        if(!supervisionRemota) {
+        if (!supervisionRemota) {
             return [error: true, message: "No se encontró la supervisión remota a cerrar", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
         }
 
         Calendar fecha = Calendar.getInstance()
         int anio = fecha.get(Calendar.YEAR)
         Integer idFolioPdf = supervisionRemotaRepository.getIdFolioPdf()
-        String folioPdf = generaNumeroPdf(idFolioPdf)+"/"+anio
+        String folioPdf = generaNumeroPdf(idFolioPdf) + "/" + anio
 
         supervisionRemota.observaciones = parametros.get("observaciones")
         supervisionRemota.estatus = 1
@@ -1283,21 +1392,63 @@ class SupervisionRemotaService {
         supervisionRemota.numeroVideo = parametros.get("numeroVideo") as Integer ?: 0
         supervisionRemota.folioPdf = folioPdf
         def supervisionRemotaActualizada = supervisionRemotaRepository.save(supervisionRemota)
-        if(!supervisionRemotaActualizada){
+        if (!supervisionRemotaActualizada) {
             return [error: true, status: CONFLICT, statusCode: CONFLICT.value(), message: 'Ocurrió un problema al cerrar la supervisión remota']
         }
         return [error: false, status: OK, statusCode: OK.value(), message: 'La supervisión remota se ha cerrado correctamente']
 
     }
 
-
     /**
-     * Genera un número de folio PDF con ceros a la izquierda para asegurar un formato de 4 dígitos.
-     * @param consecutivo Integer número consecutivo a formatear
-     * @return String número formateado con ceros a la izquierda
+     * Genera un número de folio en formato PDF con ceros a la izquierda.
+     * @param consecutivo Integer número consecutivo para generar el folio
+     * @return String folio generado en formato PDF
      */
     String generaNumeroPdf(Integer consecutivo) {
-        return String.format("%04d", consecutivo ?: 0)
+        return String.format("%04d", consecutivo)
+    }
+
+    /**
+     * Consulta las anomalías registradas en la bitácora de supervisión remota para una supervisión específica.
+     * @param idSupervisionRemota Integer identificador de la supervisión remota
+     * @return Map con el resultado de la consulta, incluyendo error, mensaje, estatus HTTP y lista de anomalías
+     */
+    def consultaAnomaliasSupervisionVerificentro(Integer idSupervisionRemota){
+        def respuestaTiposAnomalia = consultaTiposAnomalia()
+        if (respuestaTiposAnomalia?.error){
+            return respuestaTiposAnomalia
+        }
+        def listaAnomalias = anomaliaSupervisionRemotaRepository.findAnomaliasBySupervisionRemota(idSupervisionRemota)
+        def respuesta = [error: false, statusCode: OK.value(), anomalias: listaAnomalias]
+
+        respuesta.putAll(respuestaTiposAnomalia)
+        return respuesta
+    }
+
+    def consultaTiposAnomalia(){
+        List<MotivoAnomalia> tiposAnomalia = motivoAnomaliaRepository.findAllByOrderByIdAsc()
+
+        if (!tiposAnomalia || tiposAnomalia.isEmpty()) {
+            return [error: true, message: "No se encontró la información necesaria para el registro de la anomalía", status: NOT_FOUND, statusCode: NOT_FOUND.value()]
+        }
+        return [tiposAnomalia: tiposAnomalia]
+    }
+
+    /**
+     * Registra una anomalía en la bitácora de supervisión remota para un verificentro específico.
+     * @param datosAnomalia Map con los datos necesarios para registrar la anomalía
+     * @return Map con el resultado del registro, incluyendo error, mensaje y estatus HTTP
+     */
+    def registrarAnomaliaVerificentro(Map datosAnomalia){
+
+        Integer idAnomalia = anomaliaSupervisionRemotaRepository.getIdAnomaliaSupervision()
+        String folioSupervision = datosAnomalia?.get("folioSupervision")
+        String idVerificentro = datosAnomalia?.get("idVerificentro")
+        Integer tipoAnomalia = datosAnomalia.get("tipoAnomalia") as Integer
+        String descripcionAnomalia = datosAnomalia.get("descripcionAnomalia")
+        String folioAnomalia = idAnomalia + idVerificentro
+
+        registrarAnomaliaSupervisionRemota(idAnomalia, folioSupervision, folioAnomalia, tipoAnomalia, descripcionAnomalia)
     }
 
 }

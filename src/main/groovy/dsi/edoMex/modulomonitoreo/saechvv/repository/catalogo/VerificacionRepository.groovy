@@ -147,8 +147,14 @@ interface VerificacionRepository extends JpaRepository<Verificacion, Integer> {
           AND VE.IDVERIFICENTRO = :idVerificentro 
           AND CONVERT(DATE, VE.FECHA_INI_VERIF, 103) BETWEEN CONVERT(DATE, :fechaInicio, 103) AND CONVERT(DATE, :fechaFin, 103)
         ORDER BY ctv.centro_nom, VE.IDVERIFICACION
+        :#{#limite != null ? 'OFFSET 0 ROWS FETCH NEXT ' + #limite + ' ROWS ONLY' : ''}
     """, nativeQuery = true)
-    List<Map<String, Object>> findVerificacionesByVerificentro(@Param("idVerificentro") Integer idVerificentro, @Param("fechaInicio") String fechaInicio, @Param("fechaFin") String fechaFin)
+    List<Map<String, Object>> findVerificacionesByVerificentro(
+            @Param("idVerificentro") Integer idVerificentro,
+            @Param("fechaInicio") String fechaInicio,
+            @Param("fechaFin") String fechaFin,
+            @Param("limite") Integer limite
+    )
 
 
     /**
